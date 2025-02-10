@@ -1,0 +1,52 @@
+import asyncio
+import json
+import os
+from datetime import datetime
+import pytz
+from websockets import connect
+from termcolor import cprint
+
+websocket_url = 'wss://fstream.binance.com/ws/!forceOrder@arr'
+csv_folder = 'C:/Users/erikn/Desktop/Bootcamp/live_data_csv'
+csv_filename = os.path.join(csv_folder, 'binance_bigliqs.csv')
+
+if not os.path.exists(csv_folder):
+    os.makedirs(csv_folder)
+
+csv_filename = os.path.join(csv_folder, 'binance_liquidations.csv')
+if not os.path.isfile(csv_filename):
+    with open(csv_filename, 'w') as f:
+        f.write(",".join([
+            'symbol', 'side', 'order_type', 'time_in_force',
+            'original_quantity', 'price', 'average_price', 'order_status',
+            'order_last_filled_quantity', 'order_filled_accumulated_quantity',
+            'order_trade_time', 'usd_size'
+        ])+ "\n")
+
+async def binance_liquidation(uri, csv_filename):
+    async with connect(uri) as websocket:
+        while True:
+            try:
+                msg = await websocket.recv()
+                order_data = json.loads(msg)['o']
+                symbol = order_data['s'].replace('USDT', '')
+                side = order_data['S']
+                timestamp = int(order_data['T'])
+                filled_quantity = float(order_data['z'])
+                price = float(order_data['p'])
+                usd_size = filled_quantity * price
+                est = pytz.timezone("US/Eastern")
+                time_est = datetime.fromtimestamp(timestamp/1000, est).strftime('%H:%M:%S')
+
+                # Save to CSV
+                msg_values = [str(order_data.get(key)) for key in ['s', 'S', 'o', 'f', 'q', 'p', 'ap', 'X', 'l', 'z', 'T']]
+                msg_values.append(str(usd_size))
+                with open(csv_filename, 'a') as f:
+                    trade_info = ','.join(msg_values) + '\n'
+                    trade_info = trade_info.replace('USDT', '')
+                    f.write(trade_info)
+
+            except Exception as e:
+                await asyncio.sleep(5)
+
+asyncio.run(binance_liquidation(websocket_url, csv_filename))
